@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: #09090B;
+  }
+  body {
+    @apply bg-background text-zinc-100;
+    background-color: #09090B;
+    -webkit-tap-highlight-color: transparent;
+    /* Prevent pull-to-refresh color flash on iOS */
+    overscroll-behavior: none;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
