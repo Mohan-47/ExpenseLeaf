@@ -6,7 +6,7 @@ import { CATEGORIES } from '../constants';
 import { ProgressBar } from '../components/ProgressBar';
 import { AccountSettingsModal } from '../components/AccountSettingsModal';
 import * as LucideIcons from 'lucide-react';
-import { format } from 'date-fns';
+import { format, addMonths, subMonths } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../utils/cn';
 import { formatName } from '../utils/formatName';
