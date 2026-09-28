@@ -6,36 +6,50 @@ import * as LucideIcons from 'lucide-react';
 import { useExpense } from '../context/ExpenseContext';
 import { format } from 'date-fns';
 
-export function AddExpenseSheet({ isOpen, onClose }) {
+export function AddExpenseSheet({ isOpen, onClose, expenseToEdit }) {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState(null);
   const [account, setAccount] = useState('UPI');
   const [note, setNote] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const inputRef = useRef(null);
-  const { addExpense, loading } = useExpense();
+  const { addExpense, updateExpense, loading } = useExpense();
 
   useEffect(() => {
     if (isOpen) {
-      setAmount('');
-      setCategory(null);
-      setAccount('UPI');
-      setNote('');
-      setDate(format(new Date(), 'yyyy-MM-dd'));
-      setTimeout(() => inputRef.current?.focus(), 100);
+      if (expenseToEdit) {
+        setAmount(expenseToEdit.amount?.toString() || '');
+        setCategory(expenseToEdit.category);
+        setAccount(expenseToEdit.account || 'UPI');
+        setNote(expenseToEdit.note || '');
+        setDate(expenseToEdit.expense_date ? format(new Date(expenseToEdit.expense_date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
+      } else {
+        setAmount('');
+        setCategory(null);
+        setAccount('UPI');
+        setNote('');
+        setDate(format(new Date(), 'yyyy-MM-dd'));
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, expenseToEdit]);
 
   const handleSave = async () => {
     if (!amount || !category || !account) return;
     
-    await addExpense({
+    const payload = {
       amount: parseFloat(amount),
       category: category,
       account: account,
       note: note.trim(),
       expense_date: date
-    });
+    };
+
+    if (expenseToEdit && updateExpense) {
+      await updateExpense(expenseToEdit.id, payload);
+    } else {
+      await addExpense(payload);
+    }
     onClose();
   };
 
@@ -46,7 +60,7 @@ export function AddExpenseSheet({ isOpen, onClose }) {
       <div className="fixed inset-0 bg-black/60 z-50 transition-opacity backdrop-blur-sm" onClick={onClose} />
       <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-card rounded-t-3xl z-50 p-6 shadow-2xl">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-medium text-zinc-100">Add Expense</h2>
+          <h2 className="text-lg font-medium text-zinc-100">{expenseToEdit ? 'Edit Expense' : 'Add Expense'}</h2>
           <button onClick={onClose} className="p-2 -m-2 text-zinc-400 hover:text-zinc-200"><X size={20} /></button>
         </div>
 
@@ -133,7 +147,7 @@ export function AddExpenseSheet({ isOpen, onClose }) {
           disabled={!amount || !category || !account || loading}
           className="w-full bg-emerald-500 text-zinc-950 font-medium py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-400 transition-colors disabled:opacity-50"
         >
-          {loading ? 'Saving...' : 'Save Expense'}
+          {loading ? 'Saving...' : expenseToEdit ? 'Save Changes' : 'Save Expense'}
         </button>
       </div>
     </>

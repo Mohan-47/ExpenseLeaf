@@ -4,39 +4,39 @@ import { useExpense } from '../context/ExpenseContext';
 import { CATEGORIES } from '../constants';
 import { format, subMonths, isSameMonth, parseISO, isWeekend, getDaysInMonth, getDate } from 'date-fns';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Lightbulb, ChevronRight, Save, AlertCircle, Sparkles } from 'lucide-react';
+import { Lightbulb, ChevronRight, Save, AlertCircle, Sparkles, Eye, Lock } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { cn } from '../utils/cn';
+import { formatName } from '../utils/formatName';
 
 const COLORS = ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444', '#EC4899', '#6B7280'];
 
 export function AnalyticsScreen() {
-  const [tab, setTab] = useState('Monthly'); 
-  const { user, updateMonthlyBudget, updateCategoryBudgets } = useAuth();
-  const { expenses, currentMonth, fetchFourMonthsExpenses } = useExpense();
-  
+  const [tab, setTab] = useState('Monthly');
+  const { user, linkedUserProfile, viewMode, setViewMode, updateMonthlyBudget, updateCategoryBudgets } = useAuth();
+  const { expenses, currentMonth, fetchFourMonthsExpenses, activeMonthlyBudget, activeCategoryBudgets } = useExpense();
+
+  const isReadOnly = viewMode !== 'personal';
   const [fourMonthsData, setFourMonthsData] = useState([]);
-  
-  const [editMonthlyBudget, setEditMonthlyBudget] = useState(user?.monthly_budget || 0);
+
+  const [editMonthlyBudget, setEditMonthlyBudget] = useState(activeMonthlyBudget || 0);
   const [editCategoryBudgets, setEditCategoryBudgets] = useState(() => {
     const initial = {};
     Object.values(CATEGORIES).forEach(cat => {
-      initial[cat.id] = user?.category_budgets?.[cat.id] !== undefined ? user.category_budgets[cat.id] : cat.defaultLimit;
+      initial[cat.id] = activeCategoryBudgets?.[cat.id] !== undefined ? activeCategoryBudgets[cat.id] : cat.defaultLimit;
     });
     return initial;
   });
 
-  // Keep editor state in sync if user changes elsewhere
+  // Keep editor state in sync if active budgets change
   useEffect(() => {
-    if (user) {
-      setEditMonthlyBudget(user.monthly_budget);
-      const initial = {};
-      Object.values(CATEGORIES).forEach(cat => {
-        initial[cat.id] = user.category_budgets?.[cat.id] !== undefined ? user.category_budgets[cat.id] : cat.defaultLimit;
-      });
-      setEditCategoryBudgets(initial);
-    }
-  }, [user]);
+    setEditMonthlyBudget(activeMonthlyBudget || 0);
+    const initial = {};
+    Object.values(CATEGORIES).forEach(cat => {
+      initial[cat.id] = activeCategoryBudgets?.[cat.id] !== undefined ? activeCategoryBudgets[cat.id] : cat.defaultLimit;
+    });
+    setEditCategoryBudgets(initial);
+  }, [activeMonthlyBudget, activeCategoryBudgets, viewMode]);
 
   useEffect(() => {
     fetchFourMonthsExpenses(currentMonth).then(data => setFourMonthsData(data || []));
@@ -66,7 +66,7 @@ export function AnalyticsScreen() {
       subMonths(currentMonth, 1),
       currentMonth
     ];
-    
+
     return months.map(m => {
       const spent = fourMonthsData
         .filter(e => isSameMonth(parseISO(e.expense_date), m))
@@ -91,7 +91,7 @@ export function AnalyticsScreen() {
     ? Math.max(1, totalDaysInMonth - daysPassed)
     : 1;
 
-  const monthlyBudget = user?.monthly_budget || 0;
+  const monthlyBudget = activeMonthlyBudget || 0;
   const remainingBudget = monthlyBudget - totalSpent;
 
   const safeDailyLimit = remainingBudget > 0 ? (remainingBudget / daysLeft) : 0;
@@ -100,8 +100,8 @@ export function AnalyticsScreen() {
   // Category alert calculations
   const categoryAlerts = useMemo(() => {
     return Object.values(CATEGORIES).map(cat => {
-      const limit = user?.category_budgets?.[cat.id] !== undefined 
-        ? user.category_budgets[cat.id] 
+      const limit = activeCategoryBudgets?.[cat.id] !== undefined
+        ? activeCategoryBudgets[cat.id]
         : cat.defaultLimit;
       const spent = expenses
         .filter(e => e.category === cat.id)
@@ -119,7 +119,7 @@ export function AnalyticsScreen() {
         overspent
       };
     });
-  }, [expenses, user?.category_budgets]);
+  }, [expenses, activeCategoryBudgets]);
 
   const flaggedCategories = useMemo(() => {
     return categoryAlerts.filter(c => c.pct >= 85).sort((a, b) => b.pct - a.pct);
@@ -192,24 +192,85 @@ export function AnalyticsScreen() {
   };
 
   const handleSaveBudget = () => {
+    if (isReadOnly) return;
     updateMonthlyBudget(parseInt(editMonthlyBudget) || user.monthly_budget);
     updateCategoryBudgets(editCategoryBudgets);
     alert('Budgets saved successfully!');
   };
 
   return (
-    <div className="p-6 pb-24">
-      <h1 className="text-2xl font-medium mb-6 text-zinc-100">Analytics</h1>
-      
+    <div className="p-6 pb-28">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Analytics</h1>
+          {isReadOnly && (
+            <div className="flex items-center gap-1 bg-zinc-900/80 border border-zinc-800 text-zinc-400 px-2 py-0.5 rounded-md text-[10px] font-medium">
+              <Eye size={12} />
+              <span>Read-Only</span>
+            </div>
+          )}
+        </div>
+        <div className="text-xs text-zinc-400 font-medium bg-zinc-900/80 px-3 py-1.5 rounded-full border border-zinc-800">
+          {format(currentMonth, 'MMMM yyyy')}
+        </div>
+      </div>
+
+      {/* 3-Way Segmented Pill Switcher */}
+      {linkedUserProfile && (
+        <div className="flex bg-[#18181B] p-1 rounded-xl border border-zinc-800 mb-4 shadow-sm">
+          <button
+            onClick={() => setViewMode('personal')}
+            className={cn(
+              "flex-1 py-1.5 text-xs font-medium rounded-lg transition-all text-center",
+              viewMode === 'personal'
+                ? "bg-emerald-500 text-zinc-950 font-semibold shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200"
+            )}
+          >
+            Personal
+          </button>
+          <button
+            onClick={() => setViewMode('connected')}
+            className={cn(
+              "flex-1 py-1.5 text-xs font-medium rounded-lg transition-all text-center truncate px-2 flex items-center justify-center gap-1.5",
+              viewMode === 'connected'
+                ? "bg-emerald-500 text-zinc-950 font-semibold shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200"
+            )}
+          >
+            <div className={cn(
+              "w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold",
+              viewMode === 'connected' ? "bg-zinc-950/10" : "bg-emerald-500/10 text-emerald-400"
+            )}>
+              {formatName(linkedUserProfile.username).charAt(0)}
+            </div>
+            {formatName(linkedUserProfile.username)}
+          </button>
+          <button
+            onClick={() => setViewMode('merged')}
+            className={cn(
+              "flex-1 py-1.5 text-xs font-medium rounded-lg transition-all text-center",
+              viewMode === 'merged'
+                ? "bg-emerald-500 text-zinc-950 font-semibold shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200"
+            )}
+          >
+            Merged
+          </button>
+        </div>
+      )}
+
+
+
       {/* Tabs */}
-      <div className="flex gap-2 p-1 bg-zinc-900/50 border border-zinc-800/80 rounded-full mb-8">
+      <div className="flex gap-2 p-1 bg-zinc-900/50 border border-zinc-800/80 rounded-full mb-6">
         {['Monthly', 'Category Split', 'Budget Limits'].map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
               "flex-1 text-[11px] py-2 rounded-full font-medium transition-all whitespace-nowrap",
-              tab === t ? "bg-emerald-500 text-zinc-950 shadow-md" : "text-zinc-400 hover:text-zinc-200"
+              tab === t ? "bg-emerald-500 text-zinc-950 shadow-md font-semibold" : "text-zinc-400 hover:text-zinc-200"
             )}
           >
             {t}
@@ -298,7 +359,7 @@ export function AnalyticsScreen() {
                   <div className="text-zinc-100 font-semibold text-base">₹{Math.round(actualDailyAvg).toLocaleString('en-IN')} <span className="text-xs font-normal text-zinc-500">/ day</span></div>
                 </div>
               </div>
-              
+
               <div className={cn("px-3 py-2 rounded-xl border text-[11px] font-medium leading-relaxed", speedometerBadge.style)}>
                 {speedometerBadge.text}
               </div>
@@ -310,7 +371,7 @@ export function AnalyticsScreen() {
                 <h3 className="text-xs font-medium text-zinc-400">Weekend vs Weekday Split</h3>
                 <span className="text-[10px] text-zinc-500 font-medium">{weekdayPct}% Weekday • {weekendPct}% Weekend</span>
               </div>
-              
+
               <div className="h-2 flex rounded-full overflow-hidden mb-3">
                 <div className="bg-emerald-500 h-full transition-all" style={{ width: `${weekdayPct}%` }} />
                 <div className="bg-amber-500 h-full transition-all" style={{ width: `${weekendPct}%` }} />
@@ -351,7 +412,7 @@ export function AnalyticsScreen() {
       {tab === 'Category Split' && (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
           <h3 className="text-sm font-medium text-zinc-400 mb-6 text-center">Category Split ({format(currentMonth, 'MMMM yyyy')})</h3>
-          
+
           <div className="relative h-64 w-full mb-8 flex justify-center">
             {pieData.length > 0 ? (
               <>
@@ -383,11 +444,10 @@ export function AnalyticsScreen() {
             )}
           </div>
 
-          {/* Clean 2-column Legend Rows with proper padding, no truncation, and formatted totals next to percentages */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 px-1">
             {pieData.map((d) => (
-              <div 
-                key={d.name} 
+              <div
+                key={d.name}
                 className="flex items-center justify-between p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl"
               >
                 <div className="flex items-center gap-2.5 min-w-0 pr-2">
@@ -406,15 +466,24 @@ export function AnalyticsScreen() {
 
       {tab === 'Budget Limits' && (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 pb-8">
+          {/* Read-Only Notice */}
+          {isReadOnly && (
+            <div className="mb-6 p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-300 flex items-center gap-3">
+              <Lock size={16} className="text-emerald-400 flex-shrink-0" />
+              <span>Switch to Personal view to edit your budget limits.</span>
+            </div>
+          )}
+
           <div className="bg-card border border-zinc-800/80 rounded-2xl p-4 mb-6">
             <h3 className="text-sm font-medium text-zinc-400 mb-4">Total Monthly Budget</h3>
-            <div className="flex items-center gap-2 bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50">
+            <div className={cn("flex items-center gap-2 bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50", isReadOnly && "opacity-60")}>
               <span className="text-lg text-emerald-500 font-medium">₹</span>
               <input
                 type="number"
+                disabled={isReadOnly}
                 value={editMonthlyBudget}
                 onChange={(e) => setEditMonthlyBudget(e.target.value)}
-                className="w-full bg-transparent text-xl text-zinc-100 outline-none font-medium"
+                className="w-full bg-transparent text-xl text-zinc-100 outline-none font-medium disabled:cursor-not-allowed"
               />
             </div>
           </div>
@@ -432,13 +501,14 @@ export function AnalyticsScreen() {
                     </div>
                     <span className="text-sm font-medium text-zinc-200">{cat.label}</span>
                   </div>
-                  <div className="flex items-center gap-1 bg-zinc-950/50 px-3 py-2 rounded-lg border border-zinc-800/50 w-28">
+                  <div className={cn("flex items-center gap-1 bg-zinc-950/50 px-3 py-2 rounded-lg border border-zinc-800/50 w-28", isReadOnly && "opacity-60")}>
                     <span className="text-zinc-500 text-sm">₹</span>
                     <input
                       type="number"
-                      value={val}
+                      disabled={isReadOnly}
+                      value={val || 0}
                       onChange={(e) => setEditCategoryBudgets({...editCategoryBudgets, [cat.id]: parseInt(e.target.value) || 0})}
-                      className="w-full bg-transparent text-sm text-zinc-100 outline-none text-right font-medium"
+                      className="w-full bg-transparent text-sm text-zinc-100 outline-none text-right font-medium disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -446,12 +516,14 @@ export function AnalyticsScreen() {
             })}
           </div>
 
-          <button
-            onClick={handleSaveBudget}
-            className="w-full bg-emerald-500 text-zinc-950 font-medium py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20"
-          >
-            <Save size={20} /> Save Budget Changes
-          </button>
+          {!isReadOnly && (
+            <button
+              onClick={handleSaveBudget}
+              className="w-full bg-emerald-500 text-zinc-950 font-medium py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 active:scale-98"
+            >
+              <Save size={20} /> Save Budget Changes
+            </button>
+          )}
         </div>
       )}
     </div>
