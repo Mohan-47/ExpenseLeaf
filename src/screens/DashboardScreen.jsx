@@ -12,8 +12,8 @@ import { cn } from '../utils/cn';
 import { formatName } from '../utils/formatName';
 
 export function DashboardScreen() {
-  const { user, linkedUserProfile, viewMode, setViewMode, updateMonthlyBudget } = useAuth();
-  const { expenses, currentMonth, setCurrentMonth, activeMonthlyBudget, activeCategoryBudgets } = useExpense();
+  const { user, linkedUserProfile, viewMode, setViewMode } = useAuth();
+  const { expenses, currentMonth, setCurrentMonth, activeMonthlyBudget, activeCategoryBudgets, updateMonthlyBudget } = useExpense();
   const navigate = useNavigate();
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);

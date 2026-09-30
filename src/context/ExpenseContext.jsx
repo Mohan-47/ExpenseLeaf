@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import { CATEGORIES } from '../constants';
@@ -7,42 +7,93 @@ import { startOfMonth, endOfMonth, format, parseISO, isSameMonth, subMonths } fr
 const ExpenseContext = createContext();
 
 export function ExpenseProvider({ children }) {
-  const { user, linkedUserProfile, viewMode } = useAuth();
+  const { user, linkedUserProfile, viewMode, getMonthBudget, updateMonthBudget } = useAuth();
   const [expenses, setExpenses] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [loading, setLoading] = useState(false);
 
-  // Compute active monthly budget based on viewMode
-  const activeMonthlyBudget = useMemo(() => {
-    const userBudget = user?.monthly_budget || 0;
-    const linkedBudget = linkedUserProfile?.monthly_budget || 0;
+  const [activeMonthlyBudget, setActiveMonthlyBudget] = useState(0);
+  const [activeCategoryBudgets, setActiveCategoryBudgets] = useState({});
 
-    if (viewMode === 'connected') {
-      return linkedBudget;
-    }
-    if (viewMode === 'merged') {
-      return userBudget + linkedBudget;
-    }
-    return userBudget;
-  }, [user?.monthly_budget, linkedUserProfile?.monthly_budget, viewMode]);
+  useEffect(() => {
+    const fetchBudgets = async () => {
+      const monthKey = format(currentMonth, 'yyyy-MM');
+      
+      let uBudget = 0, uCat = {};
+      let lBudget = 0, lCat = {};
 
-  // Compute active category budgets based on viewMode
-  const activeCategoryBudgets = useMemo(() => {
-    const budgets = {};
-    Object.values(CATEGORIES).forEach(cat => {
-      const userLimit = user?.category_budgets?.[cat.id] ?? user?.category_budgets?.[cat.label] ?? cat.defaultLimit;
-      const linkedLimit = linkedUserProfile?.category_budgets?.[cat.id] ?? linkedUserProfile?.category_budgets?.[cat.label] ?? cat.defaultLimit;
+      if (user) {
+        const u = await getMonthBudget(monthKey, user, false);
+        uBudget = u.monthly_budget;
+        uCat = u.category_budgets;
+      }
+
+      if (linkedUserProfile) {
+        const l = await getMonthBudget(monthKey, linkedUserProfile, true);
+        lBudget = l.monthly_budget;
+        lCat = l.category_budgets;
+      }
+
+      let finalBudget = 0;
+      let finalCat = {};
 
       if (viewMode === 'connected') {
-        budgets[cat.id] = linkedLimit;
+        finalBudget = lBudget;
+        finalCat = lCat;
       } else if (viewMode === 'merged') {
-        budgets[cat.id] = userLimit + linkedLimit;
+        finalBudget = uBudget + lBudget;
+        Object.values(CATEGORIES).forEach(cat => {
+          finalCat[cat.id] = (uCat[cat.id] ?? cat.defaultLimit) + (lCat[cat.id] ?? cat.defaultLimit);
+        });
       } else {
-        budgets[cat.id] = userLimit;
+        finalBudget = uBudget;
+        finalCat = uCat;
       }
-    });
-    return budgets;
-  }, [user?.category_budgets, linkedUserProfile?.category_budgets, viewMode]);
+
+      if (viewMode !== 'merged') {
+         Object.values(CATEGORIES).forEach(cat => {
+           finalCat[cat.id] = finalCat[cat.id] ?? cat.defaultLimit;
+         });
+      }
+
+      setActiveMonthlyBudget(finalBudget);
+      setActiveCategoryBudgets(finalCat);
+    };
+
+    fetchBudgets();
+  }, [user, linkedUserProfile, viewMode, currentMonth, getMonthBudget]);
+
+  const updateMonthlyBudget = async (newAmount) => {
+    if (!user) return;
+    const monthKey = format(currentMonth, 'yyyy-MM');
+    const u = await getMonthBudget(monthKey, user, false);
+    await updateMonthBudget(monthKey, newAmount, u.category_budgets);
+    // After update, update locally if viewMode is personal or merged
+    if (viewMode === 'personal' || viewMode === 'merged') {
+      const linkedAmt = viewMode === 'merged' ? (activeMonthlyBudget - u.monthly_budget) : 0;
+      setActiveMonthlyBudget(newAmount + linkedAmt);
+    }
+  };
+
+  const updateCategoryBudgets = async (newCatBudgets) => {
+    if (!user) return;
+    const monthKey = format(currentMonth, 'yyyy-MM');
+    const u = await getMonthBudget(monthKey, user, false);
+    await updateMonthBudget(monthKey, u.monthly_budget, newCatBudgets);
+    
+    // Optimistic local update
+    if (viewMode === 'personal') {
+      setActiveCategoryBudgets(newCatBudgets);
+    } else if (viewMode === 'merged') {
+      const mergedCat = {};
+      const l = await getMonthBudget(monthKey, linkedUserProfile, true);
+      Object.values(CATEGORIES).forEach(cat => {
+        mergedCat[cat.id] = (newCatBudgets[cat.id] ?? cat.defaultLimit) + (l.category_budgets[cat.id] ?? cat.defaultLimit);
+      });
+      setActiveCategoryBudgets(mergedCat);
+    }
+  };
+
 
   const fetchExpenses = useCallback(async (monthDate) => {
     if (!user) return;
@@ -208,6 +259,8 @@ export function ExpenseProvider({ children }) {
         fetchFourMonthsExpenses,
         activeMonthlyBudget,
         activeCategoryBudgets,
+        updateMonthlyBudget,
+        updateCategoryBudgets,
         loading
       }}
     >

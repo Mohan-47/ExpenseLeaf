@@ -2,9 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useExpense } from '../context/ExpenseContext';
 import { CATEGORIES } from '../constants';
-import { format, subMonths, isSameMonth, parseISO, isWeekend, getDaysInMonth, getDate } from 'date-fns';
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Lightbulb, ChevronRight, Save, AlertCircle, Sparkles, Eye, Lock } from 'lucide-react';
+import { format, subMonths, isSameMonth, parseISO, isWeekend, getDaysInMonth, getDate, addMonths } from 'date-fns';
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts';
+import { Lightbulb, ChevronRight, Save, AlertCircle, Sparkles, Eye, Lock, ChevronLeft } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { cn } from '../utils/cn';
 import { formatName } from '../utils/formatName';
@@ -13,11 +13,42 @@ const COLORS = ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444', '#EC4899'
 
 export function AnalyticsScreen() {
   const [tab, setTab] = useState('Monthly');
-  const { user, linkedUserProfile, viewMode, setViewMode, updateMonthlyBudget, updateCategoryBudgets } = useAuth();
-  const { expenses, currentMonth, fetchFourMonthsExpenses, activeMonthlyBudget, activeCategoryBudgets } = useExpense();
+  const { user, linkedUserProfile, viewMode, setViewMode, getMonthBudget } = useAuth();
+  const { expenses, currentMonth, setCurrentMonth, fetchFourMonthsExpenses, activeMonthlyBudget, activeCategoryBudgets, updateMonthlyBudget, updateCategoryBudgets } = useExpense();
 
   const isReadOnly = viewMode !== 'personal';
   const [fourMonthsData, setFourMonthsData] = useState([]);
+  const [fourMonthsBudgets, setFourMonthsBudgets] = useState({});
+
+  useEffect(() => {
+    const fetchBudgetsForPast4Months = async () => {
+      const months = [
+        subMonths(currentMonth, 3),
+        subMonths(currentMonth, 2),
+        subMonths(currentMonth, 1),
+        currentMonth
+      ];
+      const budgets = {};
+      for (const m of months) {
+        const monthKey = format(m, 'yyyy-MM');
+        let uBudget = 0;
+        let lBudget = 0;
+        if (user) {
+          const u = await getMonthBudget(monthKey, user, false);
+          uBudget = u.monthly_budget;
+        }
+        if (linkedUserProfile) {
+          const l = await getMonthBudget(monthKey, linkedUserProfile, true);
+          lBudget = l.monthly_budget;
+        }
+        if (viewMode === 'connected') budgets[monthKey] = lBudget;
+        else if (viewMode === 'merged') budgets[monthKey] = uBudget + lBudget;
+        else budgets[monthKey] = uBudget;
+      }
+      setFourMonthsBudgets(budgets);
+    };
+    fetchBudgetsForPast4Months();
+  }, [currentMonth, user, linkedUserProfile, viewMode, getMonthBudget]);
 
   const [editMonthlyBudget, setEditMonthlyBudget] = useState(activeMonthlyBudget || 0);
   const [editCategoryBudgets, setEditCategoryBudgets] = useState(() => {
@@ -59,6 +90,11 @@ export function AnalyticsScreen() {
     }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
   }, [expenses]);
 
+  const formatK = (val) => {
+    if (val >= 1000) return `₹${(val / 1000).toFixed(1)}k`;
+    return `₹${val}`;
+  };
+
   const barData = useMemo(() => {
     const months = [
       subMonths(currentMonth, 3),
@@ -68,15 +104,21 @@ export function AnalyticsScreen() {
     ];
 
     return months.map(m => {
+      const monthKey = format(m, 'yyyy-MM');
       const spent = fourMonthsData
         .filter(e => isSameMonth(parseISO(e.expense_date), m))
         .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+      const budget = fourMonthsBudgets[monthKey] || 0;
+      
       return {
         name: format(m, 'MMM'),
-        value: spent
+        dateObj: m,
+        value: spent,
+        budget: budget,
+        formattedSpent: formatK(spent)
       };
     });
-  }, [currentMonth, fourMonthsData]);
+  }, [currentMonth, fourMonthsData, fourMonthsBudgets]);
 
   // Calendar and day calculations
   const today = new Date();
@@ -179,6 +221,19 @@ export function AnalyticsScreen() {
     };
   }, [remainingBudget, actualDailyAvg, safeDailyLimit]);
 
+  const upiSpend = expenses.filter(e => e.account === 'UPI').reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+  const cashSpend = expenses.filter(e => e.account === 'Cash').reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+  const othersSpend = expenses.filter(e => e.account === 'Others' || (e.account && e.account !== 'UPI' && e.account !== 'Cash')).reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+
+  const paymentTotal = upiSpend + cashSpend + othersSpend;
+  const upiPct = paymentTotal > 0 ? Math.round((upiSpend / paymentTotal) * 100) : 0;
+  const cashPct = paymentTotal > 0 ? Math.round((cashSpend / paymentTotal) * 100) : 0;
+  const othersPct = paymentTotal > 0 ? Math.max(0, 100 - upiPct - cashPct) : 0;
+
+  const top3Spends = useMemo(() => {
+    return [...expenses].sort((a, b) => parseFloat(b.amount || 0) - parseFloat(a.amount || 0)).slice(0, 3);
+  }, [expenses]);
+
   const renderTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       return (
@@ -210,8 +265,10 @@ export function AnalyticsScreen() {
             </div>
           )}
         </div>
-        <div className="text-xs text-zinc-400 font-medium bg-zinc-900/80 px-3 py-1.5 rounded-full border border-zinc-800">
-          {format(currentMonth, 'MMMM yyyy')}
+        <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-medium bg-zinc-900/80 px-2 py-1 rounded-full border border-zinc-800">
+          <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-1 hover:text-zinc-100 hover:bg-zinc-800 rounded-full transition-colors"><ChevronLeft size={14}/></button>
+          <span className="w-20 text-center">{format(currentMonth, 'MMM yyyy')}</span>
+          <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-1 hover:text-zinc-100 hover:bg-zinc-800 rounded-full transition-colors"><ChevronRight size={14}/></button>
         </div>
       </div>
 
@@ -284,10 +341,16 @@ export function AnalyticsScreen() {
             <h3 className="text-sm font-medium text-zinc-400 mb-4">Monthly Spending</h3>
             <div className="h-48 w-full ml-[-20px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={barData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                <BarChart data={barData} margin={{ top: 20, right: 0, left: 0, bottom: 0 }} onClick={(data) => {
+                  if (data && data.activePayload && data.activePayload.length) {
+                    setCurrentMonth(data.activePayload[0].payload.dateObj);
+                  }
+                }}>
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#71717A', fontSize: 11 }} dy={10} />
                   <Tooltip content={renderTooltip} cursor={{ fill: '#27272A', opacity: 0.5, radius: 4 }} />
-                  <Bar dataKey="value" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                  <Bar dataKey="value" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={32} style={{ cursor: 'pointer' }}>
+                    <LabelList dataKey="formattedSpent" position="top" fill="#71717A" fontSize={10} offset={4} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -404,6 +467,83 @@ export function AnalyticsScreen() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Payment Methods Split Card */}
+            <div className="bg-card border border-zinc-800/80 p-4 rounded-2xl shadow-sm">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-xs font-medium text-zinc-400">Payment Methods Split</h3>
+                <span className="text-[10px] text-zinc-500 font-medium">{upiPct}% UPI • {cashPct}% Cash • {othersPct}% Others</span>
+              </div>
+
+              <div className="h-2 flex rounded-full overflow-hidden mb-3 bg-zinc-900">
+                <div className="bg-[#8B5CF6] h-full transition-all" style={{ width: `${upiPct}%` }} />
+                <div className="bg-[#F59E0B] h-full transition-all" style={{ width: `${cashPct}%` }} />
+                <div className="bg-[#3B82F6] h-full transition-all" style={{ width: `${othersPct}%` }} />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <div className="bg-zinc-900/60 border border-zinc-800/60 p-2.5 rounded-xl">
+                  <div className="flex items-center gap-1.5 text-zinc-400 text-[10px] mb-1">
+                    <span className="w-2 h-2 rounded-full bg-[#8B5CF6] flex-shrink-0"></span>
+                    <span className="truncate">UPI ({upiPct}%)</span>
+                  </div>
+                  <div className="font-semibold text-zinc-100 text-xs sm:text-sm truncate">
+                    ₹{Math.round(upiSpend).toLocaleString('en-IN')}
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900/60 border border-zinc-800/60 p-2.5 rounded-xl">
+                  <div className="flex items-center gap-1.5 text-zinc-400 text-[10px] mb-1">
+                    <span className="w-2 h-2 rounded-full bg-[#F59E0B] flex-shrink-0"></span>
+                    <span className="truncate">Cash ({cashPct}%)</span>
+                  </div>
+                  <div className="font-semibold text-zinc-100 text-xs sm:text-sm truncate">
+                    ₹{Math.round(cashSpend).toLocaleString('en-IN')}
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900/60 border border-zinc-800/60 p-2.5 rounded-xl">
+                  <div className="flex items-center gap-1.5 text-zinc-400 text-[10px] mb-1">
+                    <span className="w-2 h-2 rounded-full bg-[#3B82F6] flex-shrink-0"></span>
+                    <span className="truncate">Others ({othersPct}%)</span>
+                  </div>
+                  <div className="font-semibold text-zinc-100 text-xs sm:text-sm truncate">
+                    ₹{Math.round(othersSpend).toLocaleString('en-IN')}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Top 3 Spends This Month */}
+            <div className="bg-card border border-zinc-800/80 p-4 rounded-2xl shadow-sm">
+              <h3 className="text-xs font-medium text-zinc-400 mb-3">Top 3 Spends This Month</h3>
+              {top3Spends.length === 0 ? (
+                <div className="text-zinc-500 text-xs text-center py-2">No expenses this month</div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {top3Spends.map((exp, idx) => {
+                    const cat = CATEGORIES[exp.category];
+                    const Icon = cat ? LucideIcons[cat.icon] : null;
+                    return (
+                      <div key={exp.id} className="flex items-center justify-between bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800/60">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-6 h-6 rounded-md bg-zinc-800 flex items-center justify-center text-zinc-400">
+                            {Icon ? <Icon size={12} /> : <span className="text-[10px]">{idx + 1}</span>}
+                          </div>
+                          <div>
+                            <div className="text-xs font-medium text-zinc-200">{exp.note || cat?.label || 'Expense'}</div>
+                            <div className="text-[10px] text-zinc-500">{format(new Date(exp.expense_date), 'dd MMM')}</div>
+                          </div>
+                        </div>
+                        <div className="text-xs font-semibold text-zinc-100">
+                          ₹{parseFloat(exp.amount).toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

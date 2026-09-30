@@ -6,6 +6,7 @@ import { useExpense } from '../context/ExpenseContext';
 import { CATEGORIES, ACCOUNTS } from '../constants';
 import { ProgressBar } from '../components/ProgressBar';
 import { AddExpenseSheet } from '../components/AddExpenseSheet';
+import { BottomNav } from '../components/BottomNav';
 import * as LucideIcons from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { cn } from '../utils/cn';
@@ -19,6 +20,7 @@ export function CategoryScreen() {
   const [filter, setFilter] = useState('All');
   const [isEditingLimit, setIsEditingLimit] = useState(false);
   const [newLimitVal, setNewLimitVal] = useState('');
+  const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
 
   const category = CATEGORIES[id];
@@ -61,7 +63,7 @@ export function CategoryScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-[#09090B] flex flex-col relative pb-8">
+    <div className="min-h-screen bg-[#09090B] flex flex-col relative pb-24">
       {/* Header */}
       <div className="sticky top-0 z-30 bg-[#09090B]/90 backdrop-blur-md pt-5 px-6 pb-4 border-b border-zinc-800/80">
         <div className="flex items-center justify-between mb-4">
@@ -143,7 +145,7 @@ export function CategoryScreen() {
       </div>
 
       {/* Expense List */}
-      <div className="px-6 py-4 flex-1">
+      <div className="px-6 py-4 flex-1 pb-24">
         {Object.keys(grouped).length === 0 ? (
           <div className="text-center text-zinc-500 mt-12 text-sm">No expenses found for this selection.</div>
         ) : (
@@ -172,7 +174,7 @@ export function CategoryScreen() {
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <div className="w-9 h-9 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 flex-shrink-0 text-xs font-medium">
-                            {expense.account?.substring(0, 3) || 'EXP'}
+                            {expense.account?.toUpperCase().substring(0, 3) || 'EXP'}
                           </div>
                           <div className="min-w-0 flex-1 pr-3">
                             <div className="flex items-center gap-2">
@@ -257,12 +259,22 @@ export function CategoryScreen() {
         </div>
       )}
 
-      {/* Edit Expense Sheet */}
+      {/* Add / Edit Expense Sheet */}
       <AddExpenseSheet
-        isOpen={!!editingExpense}
-        onClose={() => setEditingExpense(null)}
+        isOpen={isAddingExpense || !!editingExpense}
+        onClose={() => {
+          setIsAddingExpense(false);
+          setEditingExpense(null);
+        }}
         expenseToEdit={editingExpense}
+        initialCategory={id}
       />
+
+      {/* Persistent Bottom Navigation */}
+      <BottomNav onAddExpenseClick={() => {
+        setEditingExpense(null);
+        setIsAddingExpense(true);
+      }} />
     </div>
   );
 }

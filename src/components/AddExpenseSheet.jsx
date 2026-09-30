@@ -6,7 +6,7 @@ import * as LucideIcons from 'lucide-react';
 import { useExpense } from '../context/ExpenseContext';
 import { format } from 'date-fns';
 
-export function AddExpenseSheet({ isOpen, onClose, expenseToEdit }) {
+export function AddExpenseSheet({ isOpen, onClose, expenseToEdit, initialCategory }) {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState(null);
   const [account, setAccount] = useState('UPI');
@@ -25,22 +25,23 @@ export function AddExpenseSheet({ isOpen, onClose, expenseToEdit }) {
         setDate(expenseToEdit.expense_date ? format(new Date(expenseToEdit.expense_date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
       } else {
         setAmount('');
-        setCategory(null);
+        setCategory(initialCategory || null);
         setAccount('UPI');
         setNote('');
         setDate(format(new Date(), 'yyyy-MM-dd'));
         setTimeout(() => inputRef.current?.focus(), 100);
       }
     }
-  }, [isOpen, expenseToEdit]);
+  }, [isOpen, expenseToEdit, initialCategory]);
 
   const handleSave = async () => {
-    if (!amount || !category || !account) return;
+    if (!amount || !category) return;
     
+    const selectedAccount = account || 'UPI';
     const payload = {
       amount: parseFloat(amount),
       category: category,
-      account: account,
+      account: selectedAccount,
       note: note.trim(),
       expense_date: date
     };
@@ -102,11 +103,12 @@ export function AddExpenseSheet({ isOpen, onClose, expenseToEdit }) {
         </div>
 
         <div className="mb-6">
-          <h3 className="text-sm text-zinc-400 mb-3">Payment Account</h3>
+          <h3 className="text-sm text-zinc-400 mb-3">Payment Method</h3>
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
             {ACCOUNTS.map((acc) => (
               <button
                 key={acc}
+                type="button"
                 onClick={() => setAccount(acc)}
                 className={cn(
                   "px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap border",

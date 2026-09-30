@@ -8,4 +8,4 @@ export const CATEGORIES = {
   OTHERS: { id: 'OTHERS', label: 'Others', icon: 'MoreHorizontal', defaultLimit: 7000 }
 };
 
-export const ACCOUNTS = ['UPI', 'Cash'];
+export const ACCOUNTS = ['UPI', 'Cash', 'Others'];
